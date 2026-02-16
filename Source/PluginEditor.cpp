@@ -245,6 +245,13 @@ SpectrasaurusAudioProcessorEditor::SpectrasaurusAudioProcessorEditor (Spectrasau
     loadPresetButton.onClick = [this] { loadPreset(); };
     addAndMakeVisible(loadPresetButton);
 
+    // Setup preset path label (read-only display of loaded file path)
+    presetPathLabel.setText("", juce::dontSendNotification);
+    presetPathLabel.setFont(juce::Font(10.0f));
+    presetPathLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    presetPathLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(presetPathLabel);
+
     // Setup notes text editor
     notesEditor.setMultiLine(true);
     notesEditor.setReturnKeyStartsNewLine(true);
@@ -341,6 +348,21 @@ SpectrasaurusAudioProcessorEditor::SpectrasaurusAudioProcessorEditor (Spectrasau
     shiftL.setActiveCurve(juce::jlimit(0, 1, audioProcessor.shiftLCurveIndex));
     shiftR.setActiveCurve(juce::jlimit(0, 1, audioProcessor.shiftRCurveIndex));
 
+    // Restore zoom ranges from processor state
+    for (int c = 0; c < 3; ++c)
+    {
+        dynamicsL.curveRanges[c] = { audioProcessor.dynamicsLZoom[c].minDB, audioProcessor.dynamicsLZoom[c].maxDB };
+        dynamicsR.curveRanges[c] = { audioProcessor.dynamicsRZoom[c].minDB, audioProcessor.dynamicsRZoom[c].maxDB };
+    }
+    dynamicsL.syncDisplayRanges();
+    dynamicsR.syncDisplayRanges();
+    shiftL.shiftRange = { audioProcessor.shiftLZoom.minHz, audioProcessor.shiftLZoom.maxHz };
+    shiftR.shiftRange = { audioProcessor.shiftRZoom.minHz, audioProcessor.shiftRZoom.maxHz };
+    shiftL.multRange = { audioProcessor.multLZoom.minMult, audioProcessor.multLZoom.maxMult };
+    shiftR.multRange = { audioProcessor.multRZoom.minMult, audioProcessor.multRZoom.maxMult };
+    shiftL.syncSettings();
+    shiftR.syncSettings();
+
     // Restore the last active bank (persisted in processor state)
     int restoredBank = juce::jlimit(0, 3, audioProcessor.activeBankIndex.load());
     bankButtons[restoredBank].setToggleState(true, juce::dontSendNotification);
@@ -356,6 +378,17 @@ SpectrasaurusAudioProcessorEditor::~SpectrasaurusAudioProcessorEditor()
     audioProcessor.dynamicsRCurveIndex = dynamicsR.getActiveCurve();
     audioProcessor.shiftLCurveIndex = shiftL.getActiveCurve();
     audioProcessor.shiftRCurveIndex = shiftR.getActiveCurve();
+
+    // Persist zoom ranges back to processor
+    for (int c = 0; c < 3; ++c)
+    {
+        audioProcessor.dynamicsLZoom[c] = { dynamicsL.curveRanges[c].minDB, dynamicsL.curveRanges[c].maxDB };
+        audioProcessor.dynamicsRZoom[c] = { dynamicsR.curveRanges[c].minDB, dynamicsR.curveRanges[c].maxDB };
+    }
+    audioProcessor.shiftLZoom = { shiftL.shiftRange.minHz, shiftL.shiftRange.maxHz };
+    audioProcessor.shiftRZoom = { shiftR.shiftRange.minHz, shiftR.shiftRange.maxHz };
+    audioProcessor.multLZoom = { shiftL.multRange.minMult, shiftL.multRange.maxMult };
+    audioProcessor.multRZoom = { shiftR.multRange.minMult, shiftR.multRange.maxMult };
 }
 
 void SpectrasaurusAudioProcessorEditor::timerCallback()
@@ -469,35 +502,80 @@ void SpectrasaurusAudioProcessorEditor::showBankContextMenu(int bankIndex)
 
         if (result == 1)
         {
-            // Copy Bank
-            self->bankClipboard = bank;
+            // Copy Bank (curves + view state)
+            {
+                juce::SpinLock::ScopedLockType lock(self->audioProcessor.bankLock);
+                self->bankClipboard = bank;
+            }
+            // Capture view state (which curve is shown + zoom ranges)
+            auto& vs = self->bankViewClipboard;
+            vs.dynamicsLCurveIndex = self->dynamicsL.getActiveCurve();
+            vs.dynamicsRCurveIndex = self->dynamicsR.getActiveCurve();
+            for (int c = 0; c < 3; ++c)
+            {
+                vs.dynamicsLRanges[c] = self->dynamicsL.curveRanges[c];
+                vs.dynamicsRRanges[c] = self->dynamicsR.curveRanges[c];
+            }
+            vs.shiftLCurveIndex = self->shiftL.getActiveCurve();
+            vs.shiftRCurveIndex = self->shiftR.getActiveCurve();
+            vs.shiftLRange = self->shiftL.shiftRange;
+            vs.shiftRRange = self->shiftR.shiftRange;
+            vs.multLRange = self->shiftL.multRange;
+            vs.multRRange = self->shiftR.multRange;
             self->bankClipboardFilled = true;
         }
         else if (result == 2 && self->bankClipboardFilled)
         {
-            // Paste Bank
-            bank = self->bankClipboard;
+            // Paste Bank (curves + view state)
+            {
+                juce::SpinLock::ScopedLockType lock(self->audioProcessor.bankLock);
+                bank = self->bankClipboard;
+            }
+            // Restore view state
+            auto& vs = self->bankViewClipboard;
+            self->dynamicsL.setActiveCurve(vs.dynamicsLCurveIndex);
+            self->dynamicsR.setActiveCurve(vs.dynamicsRCurveIndex);
+            for (int c = 0; c < 3; ++c)
+            {
+                self->dynamicsL.curveRanges[c] = vs.dynamicsLRanges[c];
+                self->dynamicsR.curveRanges[c] = vs.dynamicsRRanges[c];
+            }
+            self->dynamicsL.syncDisplayRanges();
+            self->dynamicsR.syncDisplayRanges();
+            self->shiftL.setActiveCurve(vs.shiftLCurveIndex);
+            self->shiftR.setActiveCurve(vs.shiftRCurveIndex);
+            self->shiftL.shiftRange = vs.shiftLRange;
+            self->shiftR.shiftRange = vs.shiftRRange;
+            self->shiftL.multRange = vs.multLRange;
+            self->shiftR.multRange = vs.multRRange;
+            self->shiftL.syncSettings();
+            self->shiftR.syncSettings();
             if (bankIndex == self->selectedBank)
                 self->updateSnapWindows();
         }
         else if (result == 3)
         {
-            // Copy L -> R (curves + settings)
-            bank.delayR.copyFrom(bank.delayL);
-            bank.panR.copyFrom(bank.panL);
-            bank.feedbackR.copyFrom(bank.feedbackL);
-            bank.preGainR.copyFrom(bank.preGainL);
-            bank.minGateR.copyFrom(bank.minGateL);
-            bank.maxClipR.copyFrom(bank.maxClipL);
-            bank.shiftR.copyFrom(bank.shiftL);
-            bank.multiplyR.copyFrom(bank.multiplyL);
-            bank.delayMaxTimeMsR = bank.delayMaxTimeMsL;
-            bank.delayLogScaleR = bank.delayLogScaleL;
+            // Copy L -> R (curves + settings + view state)
+            {
+                juce::SpinLock::ScopedLockType lock(self->audioProcessor.bankLock);
+                bank.delayR.copyFrom(bank.delayL);
+                bank.panR.copyFrom(bank.panL);
+                bank.feedbackR.copyFrom(bank.feedbackL);
+                bank.preGainR.copyFrom(bank.preGainL);
+                bank.minGateR.copyFrom(bank.minGateL);
+                bank.maxClipR.copyFrom(bank.maxClipL);
+                bank.shiftR.copyFrom(bank.shiftL);
+                bank.multiplyR.copyFrom(bank.multiplyL);
+                bank.delayMaxTimeMsR = bank.delayMaxTimeMsL;
+                bank.delayLogScaleR = bank.delayLogScaleL;
+            }
 
-            // Copy zoom/display settings L -> R
+            // Copy view state L -> R
+            self->dynamicsR.setActiveCurve(self->dynamicsL.getActiveCurve());
             for (int c = 0; c < 3; ++c)
                 self->dynamicsR.curveRanges[c] = self->dynamicsL.curveRanges[c];
             self->dynamicsR.syncDisplayRanges();
+            self->shiftR.setActiveCurve(self->shiftL.getActiveCurve());
             self->shiftR.shiftRange = self->shiftL.shiftRange;
             self->shiftR.multRange = self->shiftL.multRange;
             self->shiftR.syncSettings();
@@ -507,22 +585,27 @@ void SpectrasaurusAudioProcessorEditor::showBankContextMenu(int bankIndex)
         }
         else if (result == 4)
         {
-            // Copy R -> L (curves + settings)
-            bank.delayL.copyFrom(bank.delayR);
-            bank.panL.copyFrom(bank.panR);
-            bank.feedbackL.copyFrom(bank.feedbackR);
-            bank.preGainL.copyFrom(bank.preGainR);
-            bank.minGateL.copyFrom(bank.minGateR);
-            bank.maxClipL.copyFrom(bank.maxClipR);
-            bank.shiftL.copyFrom(bank.shiftR);
-            bank.multiplyL.copyFrom(bank.multiplyR);
-            bank.delayMaxTimeMsL = bank.delayMaxTimeMsR;
-            bank.delayLogScaleL = bank.delayLogScaleR;
+            // Copy R -> L (curves + settings + view state)
+            {
+                juce::SpinLock::ScopedLockType lock(self->audioProcessor.bankLock);
+                bank.delayL.copyFrom(bank.delayR);
+                bank.panL.copyFrom(bank.panR);
+                bank.feedbackL.copyFrom(bank.feedbackR);
+                bank.preGainL.copyFrom(bank.preGainR);
+                bank.minGateL.copyFrom(bank.minGateR);
+                bank.maxClipL.copyFrom(bank.maxClipR);
+                bank.shiftL.copyFrom(bank.shiftR);
+                bank.multiplyL.copyFrom(bank.multiplyR);
+                bank.delayMaxTimeMsL = bank.delayMaxTimeMsR;
+                bank.delayLogScaleL = bank.delayLogScaleR;
+            }
 
-            // Copy zoom/display settings R -> L
+            // Copy view state R -> L
+            self->dynamicsL.setActiveCurve(self->dynamicsR.getActiveCurve());
             for (int c = 0; c < 3; ++c)
                 self->dynamicsL.curveRanges[c] = self->dynamicsR.curveRanges[c];
             self->dynamicsL.syncDisplayRanges();
+            self->shiftL.setActiveCurve(self->shiftR.getActiveCurve());
             self->shiftL.shiftRange = self->shiftR.shiftRange;
             self->shiftL.multRange = self->shiftR.multRange;
             self->shiftL.syncSettings();
@@ -532,8 +615,11 @@ void SpectrasaurusAudioProcessorEditor::showBankContextMenu(int bankIndex)
         }
         else if (result == 5)
         {
-            // Reset Bank
-            bank.reset();
+            // Reset Bank (under lock)
+            {
+                juce::SpinLock::ScopedLockType lock(self->audioProcessor.bankLock);
+                bank.reset();
+            }
             if (bankIndex == self->selectedBank)
                 self->updateSnapWindows();
         }
@@ -572,6 +658,25 @@ void SpectrasaurusAudioProcessorEditor::savePreset()
             root->setProperty("shiftLCurveIndex", shiftL.getActiveCurve());
             root->setProperty("shiftRCurveIndex", shiftR.getActiveCurve());
 
+            // Zoom ranges
+            auto saveZoom = [&](const char* prefix, const DynamicsSnapWindow& dyn,
+                                const ShiftSnapWindow& sh)
+            {
+                for (int c = 0; c < 3; ++c)
+                {
+                    root->setProperty(juce::String(prefix) + "DynZoomMin" + juce::String(c),
+                                      static_cast<double>(dyn.curveRanges[c].minDB));
+                    root->setProperty(juce::String(prefix) + "DynZoomMax" + juce::String(c),
+                                      static_cast<double>(dyn.curveRanges[c].maxDB));
+                }
+                root->setProperty(juce::String(prefix) + "ShiftZoomMin", static_cast<double>(sh.shiftRange.minHz));
+                root->setProperty(juce::String(prefix) + "ShiftZoomMax", static_cast<double>(sh.shiftRange.maxHz));
+                root->setProperty(juce::String(prefix) + "MultZoomMin", static_cast<double>(sh.multRange.minMult));
+                root->setProperty(juce::String(prefix) + "MultZoomMax", static_cast<double>(sh.multRange.maxMult));
+            };
+            saveZoom("L", dynamicsL, shiftL);
+            saveZoom("R", dynamicsR, shiftR);
+
             juce::Array<juce::var> banksArray;
             for (int i = 0; i < 4; ++i)
                 banksArray.add(audioProcessor.banks[i].toVar());
@@ -580,6 +685,12 @@ void SpectrasaurusAudioProcessorEditor::savePreset()
 
             auto json = juce::JSON::toString(juce::var(root));
             file.replaceWithText(json);
+
+            // Track saved preset path
+            currentPresetPath = file.getFullPathName();
+            presetPathLabel.setText(".../" + juce::File(currentPresetPath).getParentDirectory().getParentDirectory().getFileName()
+                + "/" + juce::File(currentPresetPath).getParentDirectory().getFileName()
+                + "/" + juce::File(currentPresetPath).getFileName(), juce::dontSendNotification);
         });
 }
 
@@ -604,6 +715,7 @@ void SpectrasaurusAudioProcessorEditor::loadPreset()
                 auto banksVar = root->getProperty("banks");
                 if (auto* banksArray = banksVar.getArray())
                 {
+                    juce::SpinLock::ScopedLockType lock(audioProcessor.bankLock);
                     int count = std::min(static_cast<int>(banksArray->size()), 4);
                     for (int i = 0; i < count; ++i)
                         audioProcessor.banks[i].fromVar((*banksArray)[i]);
@@ -660,6 +772,37 @@ void SpectrasaurusAudioProcessorEditor::loadPreset()
                 if (root->hasProperty("shiftRCurveIndex"))
                     shiftR.setActiveCurve(juce::jlimit(0, 1, static_cast<int>(root->getProperty("shiftRCurveIndex"))));
 
+                // Restore zoom ranges (backward compatible)
+                auto loadZoom = [&](const char* prefix, DynamicsSnapWindow& dyn,
+                                    ShiftSnapWindow& sh)
+                {
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        auto minKey = juce::String(prefix) + "DynZoomMin" + juce::String(c);
+                        auto maxKey = juce::String(prefix) + "DynZoomMax" + juce::String(c);
+                        if (root->hasProperty(minKey))
+                            dyn.curveRanges[c].minDB = static_cast<float>(static_cast<double>(root->getProperty(minKey)));
+                        if (root->hasProperty(maxKey))
+                            dyn.curveRanges[c].maxDB = static_cast<float>(static_cast<double>(root->getProperty(maxKey)));
+                    }
+                    dyn.syncDisplayRanges();
+                    auto shMinKey = juce::String(prefix) + "ShiftZoomMin";
+                    auto shMaxKey = juce::String(prefix) + "ShiftZoomMax";
+                    if (root->hasProperty(shMinKey))
+                        sh.shiftRange.minHz = static_cast<float>(static_cast<double>(root->getProperty(shMinKey)));
+                    if (root->hasProperty(shMaxKey))
+                        sh.shiftRange.maxHz = static_cast<float>(static_cast<double>(root->getProperty(shMaxKey)));
+                    auto mMinKey = juce::String(prefix) + "MultZoomMin";
+                    auto mMaxKey = juce::String(prefix) + "MultZoomMax";
+                    if (root->hasProperty(mMinKey))
+                        sh.multRange.minMult = static_cast<float>(static_cast<double>(root->getProperty(mMinKey)));
+                    if (root->hasProperty(mMaxKey))
+                        sh.multRange.maxMult = static_cast<float>(static_cast<double>(root->getProperty(mMaxKey)));
+                    sh.syncSettings();
+                };
+                loadZoom("L", dynamicsL, shiftL);
+                loadZoom("R", dynamicsR, shiftR);
+
                 // Restore selected bank
                 if (root->hasProperty("selectedBank"))
                 {
@@ -668,6 +811,12 @@ void SpectrasaurusAudioProcessorEditor::loadPreset()
                     selectBank(bank);
                 }
             }
+
+            // Track loaded preset path
+            currentPresetPath = file.getFullPathName();
+            presetPathLabel.setText(".../" + juce::File(currentPresetPath).getParentDirectory().getParentDirectory().getFileName()
+                + "/" + juce::File(currentPresetPath).getParentDirectory().getFileName()
+                + "/" + juce::File(currentPresetPath).getFileName(), juce::dontSendNotification);
 
             updateSnapWindows();
         });
@@ -924,11 +1073,12 @@ void SpectrasaurusAudioProcessorEditor::resized()
     const int panelTitleH = 20;
     const int panelPad = 8;
     int totalRightH = rightSide.getHeight();
-    // Bank Morph and Master get equal shares of top 2/3, Notes+Preset share the bottom 1/3
-    int panelHeight = (totalRightH - panelGap * 3) * 2 / 5;
+    // Bank Morph gets a smaller share (just enough for XY pad + knobs), Master same as before
+    int bankMorphHeight = (totalRightH - panelGap * 3) * 3 / 10;  // smaller than before
+    int masterHeight = (totalRightH - panelGap * 3) * 2 / 5;
 
     // --- Panel 1: Bank Morph ---
-    bankMorphPanel = rightSide.removeFromTop(panelHeight);
+    bankMorphPanel = rightSide.removeFromTop(bankMorphHeight);
     rightSide.removeFromTop(panelGap);
 
     {
@@ -957,7 +1107,7 @@ void SpectrasaurusAudioProcessorEditor::resized()
     }
 
     // --- Panel 2: Master ---
-    masterPanel = rightSide.removeFromTop(panelHeight);
+    masterPanel = rightSide.removeFromTop(masterHeight);
     rightSide.removeFromTop(panelGap);
 
     {
@@ -1016,6 +1166,10 @@ void SpectrasaurusAudioProcessorEditor::resized()
     {
         auto inner = presetPanel.reduced(panelPad);
         inner.removeFromTop(panelTitleH); // space for title
+
+        // Preset path label (read-only display of loaded file)
+        presetPathLabel.setBounds(inner.removeFromTop(16));
+        inner.removeFromTop(4);
 
         // Center Save/Load buttons vertically in remaining space
         auto btnArea = inner.withSizeKeepingCentre(160, 60);

@@ -202,18 +202,20 @@ void SpectrasaurusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     float wC = (1.0f - mx) * my;
     float wD = mx * my;
 
-    float bankGainDB = wA * banks[0].gainDB + wB * banks[1].gainDB +
-                       wC * banks[2].gainDB + wD * banks[3].gainDB;
-    float bankGain = juce::Decibels::decibelsToGain(bankGainDB);
+    float bankGainDB, bankClipDB, bankPan;
+    {
+        juce::SpinLock::ScopedLockType lock(bankLock);
+        bankGainDB = wA * banks[0].gainDB + wB * banks[1].gainDB +
+                     wC * banks[2].gainDB + wD * banks[3].gainDB;
+        bankClipDB = wA * banks[0].softClipThresholdDB + wB * banks[1].softClipThresholdDB +
+                     wC * banks[2].softClipThresholdDB + wD * banks[3].softClipThresholdDB;
+        bankPan = wA * banks[0].panValue + wB * banks[1].panValue +
+                  wC * banks[2].panValue + wD * banks[3].panValue;
+    }
 
-    float bankClipDB = wA * banks[0].softClipThresholdDB + wB * banks[1].softClipThresholdDB +
-                       wC * banks[2].softClipThresholdDB + wD * banks[3].softClipThresholdDB;
+    float bankGain = juce::Decibels::decibelsToGain(bankGainDB);
     float bankClipT = juce::Decibels::decibelsToGain(bankClipDB);
     bool doBankClip = bankClipDB < -0.01f;
-
-    // Compute per-bank pan (equal-power, morphed)
-    float bankPan = wA * banks[0].panValue + wB * banks[1].panValue +
-                    wC * banks[2].panValue + wD * banks[3].panValue;
     // Convert pan (-1..+1) to equal-power gains, normalized so center = unity
     float panAngle = (bankPan + 1.0f) * 0.5f * static_cast<float>(M_PI) * 0.5f;
     float panGainL = std::cos(panAngle) * std::sqrt(2.0f);
@@ -355,6 +357,25 @@ void SpectrasaurusAudioProcessor::getStateInformation (juce::MemoryBlock& destDa
     root->setProperty("shiftLCurveIndex", shiftLCurveIndex);
     root->setProperty("shiftRCurveIndex", shiftRCurveIndex);
 
+    // Zoom ranges
+    auto saveZoomRanges = [&](const char* prefix, const DynamicsZoomRange dz[3],
+                              const ShiftZoomRange& sz, const MultZoomRange& mz)
+    {
+        for (int c = 0; c < 3; ++c)
+        {
+            root->setProperty(juce::String(prefix) + "DynZoomMin" + juce::String(c),
+                              static_cast<double>(dz[c].minDB));
+            root->setProperty(juce::String(prefix) + "DynZoomMax" + juce::String(c),
+                              static_cast<double>(dz[c].maxDB));
+        }
+        root->setProperty(juce::String(prefix) + "ShiftZoomMin", static_cast<double>(sz.minHz));
+        root->setProperty(juce::String(prefix) + "ShiftZoomMax", static_cast<double>(sz.maxHz));
+        root->setProperty(juce::String(prefix) + "MultZoomMin", static_cast<double>(mz.minMult));
+        root->setProperty(juce::String(prefix) + "MultZoomMax", static_cast<double>(mz.maxMult));
+    };
+    saveZoomRanges("L", dynamicsLZoom, shiftLZoom, multLZoom);
+    saveZoomRanges("R", dynamicsRZoom, shiftRZoom, multRZoom);
+
     auto json = juce::JSON::toString(juce::var(root));
     destData.append(json.toRawUTF8(), json.getNumBytesAsUTF8());
 }
@@ -369,6 +390,7 @@ void SpectrasaurusAudioProcessor::setStateInformation (const void* data, int siz
         auto banksVar = root->getProperty("banks");
         if (auto* banksArray = banksVar.getArray())
         {
+            juce::SpinLock::ScopedLockType lock(bankLock);
             int count = std::min(static_cast<int>(banksArray->size()), 4);
             for (int i = 0; i < count; ++i)
                 banks[i].fromVar((*banksArray)[i]);
@@ -406,6 +428,35 @@ void SpectrasaurusAudioProcessor::setStateInformation (const void* data, int siz
             shiftLCurveIndex = static_cast<int>(root->getProperty("shiftLCurveIndex"));
         if (root->hasProperty("shiftRCurveIndex"))
             shiftRCurveIndex = static_cast<int>(root->getProperty("shiftRCurveIndex"));
+
+        // Zoom ranges (backward compatible — uses defaults if absent)
+        auto loadZoomRanges = [&](const char* prefix, DynamicsZoomRange dz[3],
+                                  ShiftZoomRange& sz, MultZoomRange& mz)
+        {
+            for (int c = 0; c < 3; ++c)
+            {
+                auto minKey = juce::String(prefix) + "DynZoomMin" + juce::String(c);
+                auto maxKey = juce::String(prefix) + "DynZoomMax" + juce::String(c);
+                if (root->hasProperty(minKey))
+                    dz[c].minDB = static_cast<float>(static_cast<double>(root->getProperty(minKey)));
+                if (root->hasProperty(maxKey))
+                    dz[c].maxDB = static_cast<float>(static_cast<double>(root->getProperty(maxKey)));
+            }
+            auto shMinKey = juce::String(prefix) + "ShiftZoomMin";
+            auto shMaxKey = juce::String(prefix) + "ShiftZoomMax";
+            if (root->hasProperty(shMinKey))
+                sz.minHz = static_cast<float>(static_cast<double>(root->getProperty(shMinKey)));
+            if (root->hasProperty(shMaxKey))
+                sz.maxHz = static_cast<float>(static_cast<double>(root->getProperty(shMaxKey)));
+            auto mMinKey = juce::String(prefix) + "MultZoomMin";
+            auto mMaxKey = juce::String(prefix) + "MultZoomMax";
+            if (root->hasProperty(mMinKey))
+                mz.minMult = static_cast<float>(static_cast<double>(root->getProperty(mMinKey)));
+            if (root->hasProperty(mMaxKey))
+                mz.maxMult = static_cast<float>(static_cast<double>(root->getProperty(mMaxKey)));
+        };
+        loadZoomRanges("L", dynamicsLZoom, shiftLZoom, multLZoom);
+        loadZoomRanges("R", dynamicsRZoom, shiftRZoom, multRZoom);
     }
 }
 
@@ -623,21 +674,6 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
     int minFeedbackDelayFrames = static_cast<int>((currentSampleRate * 0.001f) / hopSize);
     if (minFeedbackDelayFrames < 1) minFeedbackDelayFrames = 1;
 
-    // Morph weights for per-bin interpolation
-    float mx = getMorphX();
-    float my = getMorphY();
-    float wA = (1.0f - mx) * (1.0f - my);
-    float wB = mx * (1.0f - my);
-    float wC = (1.0f - mx) * my;
-    float wD = mx * my;
-
-    // Shift order: use bank with highest weight
-    float maxW = std::max({wA, wB, wC, wD});
-    bool shiftBeforeMult = (maxW == wA) ? banks[0].shiftBeforeMultiply :
-                           (maxW == wB) ? banks[1].shiftBeforeMultiply :
-                           (maxW == wC) ? banks[2].shiftBeforeMultiply :
-                                          banks[3].shiftBeforeMultiply;
-
     // Spectrograph capture buffers
     bool captureSpectrograph = spectrographEnabled.load();
     float localSpecL[kMaxSpectrographBins];
@@ -651,6 +687,26 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
     std::vector<float> tempRightImag(numBins, 0.0f);
     // Store per-bin parameters for phase 3
     std::vector<BinParameters> allParams(numBins);
+
+    // Lock bank data while we read curves (protects against message-thread mutations)
+    bool shiftBeforeMult;
+    {
+        juce::SpinLock::ScopedLockType lock(bankLock);
+
+        // Morph weights for per-bin interpolation
+        float mx = getMorphX();
+        float my = getMorphY();
+        float wA = (1.0f - mx) * (1.0f - my);
+        float wB = mx * (1.0f - my);
+        float wC = (1.0f - mx) * my;
+        float wD = mx * my;
+
+        // Shift order: use bank with highest weight
+        float maxW = std::max({wA, wB, wC, wD});
+        shiftBeforeMult = (maxW == wA) ? banks[0].shiftBeforeMultiply :
+                          (maxW == wB) ? banks[1].shiftBeforeMultiply :
+                          (maxW == wC) ? banks[2].shiftBeforeMultiply :
+                                         banks[3].shiftBeforeMultiply;
 
     for (int bin = 0; bin < numBins; ++bin)
     {
@@ -713,6 +769,7 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
         tempRightReal[bin] = rightReal;
         tempRightImag[bin] = rightImag;
     }
+    } // bankLock released — all bank curve data is now in temp arrays
 
     // ===== PHASE 2: Spectral shift/multiply (forward scatter) =====
     std::vector<float> shiftedLeftReal(numBins, 0.0f);

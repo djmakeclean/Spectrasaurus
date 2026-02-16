@@ -92,6 +92,8 @@ private:
     // Preset save/load
     juce::TextButton savePresetButton;
     juce::TextButton loadPresetButton;
+    juce::Label presetPathLabel;
+    juce::String currentPresetPath;
     std::unique_ptr<juce::FileChooser> fileChooser;
     void savePreset();
     void loadPreset();
@@ -113,6 +115,21 @@ private:
     void showBankContextMenu(int bankIndex);
     Bank bankClipboard;
     bool bankClipboardFilled = false;
+
+    // Per-bank UI view state copied alongside bank clipboard
+    struct BankViewState {
+        int dynamicsLCurveIndex = 0;
+        int dynamicsRCurveIndex = 0;
+        DynamicsSnapWindow::DisplayRange dynamicsLRanges[3];
+        DynamicsSnapWindow::DisplayRange dynamicsRRanges[3];
+        int shiftLCurveIndex = 0;
+        int shiftRCurveIndex = 0;
+        ShiftSnapWindow::ShiftRange shiftLRange;
+        ShiftSnapWindow::ShiftRange shiftRRange;
+        ShiftSnapWindow::MultRange multLRange;
+        ShiftSnapWindow::MultRange multRRange;
+    };
+    BankViewState bankViewClipboard;
 
     // Level metering
     float meterLevelL = 0.0f;

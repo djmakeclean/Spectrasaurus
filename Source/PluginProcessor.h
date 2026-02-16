@@ -70,6 +70,22 @@ public:
     int shiftLCurveIndex = 0;    // 0=Shift, 1=Multiply
     int shiftRCurveIndex = 0;
 
+    // Zoom ranges (persisted so editor restores to last-used zoom)
+    struct DynamicsZoomRange { float minDB = -60.0f; float maxDB = 0.0f; };
+    struct ShiftZoomRange    { float minHz = -500.0f; float maxHz = 500.0f; };
+    struct MultZoomRange     { float minMult = 0.5f;  float maxMult = 2.0f; };
+    DynamicsZoomRange dynamicsLZoom[3]; // PreGain, Gate, Clip
+    DynamicsZoomRange dynamicsRZoom[3];
+    ShiftZoomRange shiftLZoom;
+    ShiftZoomRange shiftRZoom;
+    MultZoomRange multLZoom;
+    MultZoomRange multRZoom;
+
+    // Lock protecting bank data from concurrent audio-thread reads and message-thread writes.
+    // The audio thread acquires this in processFFTFrame; the message thread acquires it
+    // around bulk bank mutations (paste, reset, copy L<->R, preset load).
+    juce::SpinLock bankLock;
+
     // Spectrograph data (post-dynamics bin magnitudes in dB, -60 to 0)
     static constexpr int kMaxSpectrographBins = 1024;
     juce::SpinLock spectrographLock;

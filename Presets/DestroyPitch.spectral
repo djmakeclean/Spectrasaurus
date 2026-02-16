@@ -1,9 +1,15 @@
 {
   "spectrasaurus_version": "1.0",
   "selectedBank": 0,
+  "morphX": 0.0,
+  "morphY": 0.0,
   "masterGainDB": 0.0,
   "masterClipDB": 0.0,
   "masterDryWet": 1.0,
+  "dynamicsLCurveIndex": 0,
+  "dynamicsRCurveIndex": 0,
+  "shiftLCurveIndex": 0,
+  "shiftRCurveIndex": 0,
   "banks": [
     {
       "delayMaxTimeMsL": 1000.0,
@@ -372,7 +378,7 @@
             0.5761814117431641
           ],
           [
-            0.9382393360137939,
+            0.938239336013794,
             0.4175191223621368
           ],
           [
