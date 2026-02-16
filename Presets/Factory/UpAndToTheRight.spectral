@@ -1,0 +1,844 @@
+{
+  "spectrasaurus_version": "1.0",
+  "selectedBank": 0,
+  "morphX": 0.0,
+  "morphY": 0.0,
+  "masterGainDB": 0.0,
+  "masterClipDB": 0.0,
+  "masterDryWet": 1.0,
+  "dynamicsLCurveIndex": 0,
+  "dynamicsRCurveIndex": 0,
+  "shiftLCurveIndex": 0,
+  "shiftRCurveIndex": 0,
+  "LDynZoomMin0": -60.0,
+  "LDynZoomMax0": 0.0,
+  "LDynZoomMin1": -60.0,
+  "LDynZoomMax1": 0.0,
+  "LDynZoomMin2": -60.0,
+  "LDynZoomMax2": 0.0,
+  "LShiftZoomMin": -500.0,
+  "LShiftZoomMax": 500.0,
+  "LMultZoomMin": 0.5,
+  "LMultZoomMax": 2.0,
+  "RDynZoomMin0": -60.0,
+  "RDynZoomMax0": 0.0,
+  "RDynZoomMin1": -60.0,
+  "RDynZoomMax1": 0.0,
+  "RDynZoomMin2": -60.0,
+  "RDynZoomMax2": 0.0,
+  "RShiftZoomMin": -500.0,
+  "RShiftZoomMax": 500.0,
+  "RMultZoomMin": 0.5,
+  "RMultZoomMax": 2.0,
+  "banks": [
+    {
+      "delayMaxTimeMsL": 5000.0,
+      "delayMaxTimeMsR": 5000.0,
+      "delayLogScaleL": false,
+      "delayLogScaleR": false,
+      "gainDB": 0.0,
+      "softClipThresholdDB": 0.0,
+      "panValue": 0.0,
+      "delayL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "delayR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "panL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "panR": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "feedbackL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "feedbackR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "preGainL": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "preGainR": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "minGateL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "minGateR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "maxClipL": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "maxClipR": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "shiftL": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "shiftR": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "multiplyL": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "multiplyR": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "shiftBeforeMultiply": true
+    },
+    {
+      "delayMaxTimeMsL": 1000.0,
+      "delayMaxTimeMsR": 1000.0,
+      "delayLogScaleL": false,
+      "delayLogScaleR": false,
+      "gainDB": 0.0,
+      "softClipThresholdDB": 0.0,
+      "panValue": 0.0,
+      "delayL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "delayR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "panL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "panR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "feedbackL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "feedbackR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "preGainL": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "preGainR": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "minGateL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "minGateR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "maxClipL": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "maxClipR": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "shiftL": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "shiftR": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "multiplyL": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "multiplyR": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "shiftBeforeMultiply": true
+    },
+    {
+      "delayMaxTimeMsL": 1000.0,
+      "delayMaxTimeMsR": 1000.0,
+      "delayLogScaleL": false,
+      "delayLogScaleR": false,
+      "gainDB": 0.0,
+      "softClipThresholdDB": 0.0,
+      "panValue": 0.0,
+      "delayL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "delayR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "panL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "panR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "feedbackL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "feedbackR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "preGainL": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "preGainR": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "minGateL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "minGateR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "maxClipL": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "maxClipR": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "shiftL": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "shiftR": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "multiplyL": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "multiplyR": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "shiftBeforeMultiply": true
+    },
+    {
+      "delayMaxTimeMsL": 1000.0,
+      "delayMaxTimeMsR": 1000.0,
+      "delayLogScaleL": false,
+      "delayLogScaleR": false,
+      "gainDB": 0.0,
+      "softClipThresholdDB": 0.0,
+      "panValue": 0.0,
+      "delayL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "delayR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "panL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "panR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "feedbackL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "feedbackR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "preGainL": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "preGainR": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "minGateL": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "minGateR": {
+        "points": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ]
+        ]
+      },
+      "maxClipL": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "maxClipR": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ]
+      },
+      "shiftL": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "shiftR": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "multiplyL": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "multiplyR": {
+        "points": [
+          [
+            0.0,
+            0.5
+          ],
+          [
+            1.0,
+            0.5
+          ]
+        ]
+      },
+      "shiftBeforeMultiply": true
+    }
+  ],
+  "notesText": "Extreme delay where high frequencies arrive up to 5 seconds later than low ones, and everything moves to the right as frequency increases"
+}

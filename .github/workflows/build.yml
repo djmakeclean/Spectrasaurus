@@ -18,10 +18,13 @@ jobs:
       - name: Build
         run: cmake --build build --target Spectrasaurus_VST3 --config Release
 
-      - name: Zip VST3
+      - name: Package VST3 + Presets
         run: |
-          cd build/Spectrasaurus_artefacts/Release/VST3
-          zip -r "$GITHUB_WORKSPACE/Spectrasaurus-macOS.zip" Spectrasaurus.vst3
+          mkdir -p staging
+          cp -R build/Spectrasaurus_artefacts/Release/VST3/Spectrasaurus.vst3 staging/
+          cp -R Presets staging/
+          cd staging
+          zip -r "$GITHUB_WORKSPACE/Spectrasaurus-macOS.zip" Spectrasaurus.vst3 Presets
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -40,9 +43,13 @@ jobs:
       - name: Build
         run: cmake --build build --target Spectrasaurus_VST3 --config Release
 
-      - name: Zip VST3
+      - name: Package VST3 + Presets
         shell: pwsh
-        run: Compress-Archive -Path "build\Spectrasaurus_artefacts\Release\VST3\Spectrasaurus.vst3" -DestinationPath "Spectrasaurus-Windows.zip"
+        run: |
+          New-Item -ItemType Directory -Path staging -Force
+          Copy-Item -Recurse "build\Spectrasaurus_artefacts\Release\VST3\Spectrasaurus.vst3" staging\
+          Copy-Item -Recurse Presets staging\
+          Compress-Archive -Path "staging\Spectrasaurus.vst3", "staging\Presets" -DestinationPath "Spectrasaurus-Windows.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -79,6 +86,8 @@ jobs:
             **macOS:** Unzip and copy `Spectrasaurus.vst3` to `~/Library/Audio/Plug-Ins/VST3/`. On first open, right-click → Open (or run `xattr -cr Spectrasaurus.vst3` in Terminal) to bypass Gatekeeper.
 
             **Windows:** Unzip and copy `Spectrasaurus.vst3` to `C:\Program Files\Common Files\VST3\`.
+
+            **Presets:** The `Presets/` folder is included in the zip. Load `.spectral` files from within the plugin.
 
             Then rescan plugins in your DAW.
           generate_release_notes: true
