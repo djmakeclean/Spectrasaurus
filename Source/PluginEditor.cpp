@@ -278,7 +278,7 @@ SpectrasaurusAudioProcessorEditor::SpectrasaurusAudioProcessorEditor (Spectrasau
         addAndMakeVisible(caption);
 
         editor.setJustification(juce::Justification::centred);
-        editor.setInputRestrictions(6, "0123456789.");
+        editor.setInputRestrictions(8, "0123456789.");
         editor.setText("1000", false);
         editor.setFont(10.0f);
         editor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff1e1e1e));
@@ -287,17 +287,19 @@ SpectrasaurusAudioProcessorEditor::SpectrasaurusAudioProcessorEditor (Spectrasau
         editor.onReturnKey = [this, &editor, setter]
         {
             float val = editor.getText().getFloatValue();
-            val = juce::jlimit(1.0f, 10000.0f, val);
-            editor.setText(juce::String(val, 1), false);
+            val = juce::jlimit(1.0f, 99000.0f, val);
+            editor.setText(juce::String(val, 0), false);
             setter(val);
+            audioProcessor.reallocateDelayBuffersIfNeeded();
             updateSnapWindows();
         };
         editor.onFocusLost = [this, &editor, setter]
         {
             float val = editor.getText().getFloatValue();
-            val = juce::jlimit(1.0f, 10000.0f, val);
-            editor.setText(juce::String(val, 1), false);
+            val = juce::jlimit(1.0f, 99000.0f, val);
+            editor.setText(juce::String(val, 0), false);
             setter(val);
+            audioProcessor.reallocateDelayBuffersIfNeeded();
             updateSnapWindows();
         };
         addAndMakeVisible(editor);
@@ -461,8 +463,8 @@ void SpectrasaurusAudioProcessorEditor::updateSnapWindows()
     panSlider.setValue(bank.panValue, juce::dontSendNotification);
 
     // Sync per-channel delay max time and log scale toggle
-    delayMaxEditorL.setText(juce::String(bank.delayMaxTimeMsL, 1), false);
-    delayMaxEditorR.setText(juce::String(bank.delayMaxTimeMsR, 1), false);
+    delayMaxEditorL.setText(juce::String(bank.delayMaxTimeMsL, 0), false);
+    delayMaxEditorR.setText(juce::String(bank.delayMaxTimeMsR, 0), false);
     delayLogScaleButtonL.setToggleState(bank.delayLogScaleL, juce::dontSendNotification);
     delayLogScaleButtonL.setButtonText(bank.delayLogScaleL ? "Log" : "Linear");
     delayLogScaleButtonR.setToggleState(bank.delayLogScaleR, juce::dontSendNotification);

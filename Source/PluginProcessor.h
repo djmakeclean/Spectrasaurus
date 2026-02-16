@@ -81,6 +81,10 @@ public:
     MultZoomRange multLZoom;
     MultZoomRange multRZoom;
 
+    // Reallocate delay buffers if any bank's max delay exceeds current capacity.
+    // Safe to call from the message thread — uses suspendProcessing().
+    void reallocateDelayBuffersIfNeeded();
+
     // Lock protecting bank data from concurrent audio-thread reads and message-thread writes.
     // The audio thread acquires this in processFFTFrame; the message thread acquires it
     // around bulk bank mutations (paste, reset, copy L<->R, preset load).
@@ -127,7 +131,7 @@ private:
     double currentSampleRate = 48000.0;
     int currentFFTSize = 2048;
     int currentOverlapFactor = 4;
-    int maxDelaySamples = 48000; // 1 second at 48kHz
+    int maxDelaySamples = 48000; // computed from bank settings
 
     void updateFFTSettings();
 
@@ -154,7 +158,15 @@ private:
         float multiplyR;
     };
 
-    BinParameters evaluateBinParameters(int binIndex);
+    struct SkipFlags {
+        bool delay = false;
+        bool pan = false;
+        bool feedback = false;
+        bool dynamics = false;
+        bool shift = false;
+    };
+
+    BinParameters evaluateBinParameters(int binIndex, const SkipFlags& skip);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrasaurusAudioProcessor)
 };

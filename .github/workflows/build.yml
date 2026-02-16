@@ -1,0 +1,84 @@
+name: Build VST3
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (Universal Binary)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCOPY_PLUGIN_AFTER_BUILD=OFF
+
+      - name: Build
+        run: cmake --build build --target Spectrasaurus_VST3 --config Release
+
+      - name: Zip VST3
+        run: |
+          cd build/Spectrasaurus_artefacts/Release/VST3
+          zip -r "$GITHUB_WORKSPACE/Spectrasaurus-macOS.zip" Spectrasaurus.vst3
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spectrasaurus-macOS
+          path: Spectrasaurus-macOS.zip
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -DCOPY_PLUGIN_AFTER_BUILD=OFF
+
+      - name: Build
+        run: cmake --build build --target Spectrasaurus_VST3 --config Release
+
+      - name: Zip VST3
+        shell: pwsh
+        run: Compress-Archive -Path "build\Spectrasaurus_artefacts\Release\VST3\Spectrasaurus.vst3" -DestinationPath "Spectrasaurus-Windows.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spectrasaurus-Windows
+          path: Spectrasaurus-Windows.zip
+
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: Spectrasaurus-macOS
+
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: Spectrasaurus-Windows
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Spectrasaurus-macOS.zip
+            Spectrasaurus-Windows.zip
+          body: |
+            ## Install
+
+            **macOS:** Unzip and copy `Spectrasaurus.vst3` to `~/Library/Audio/Plug-Ins/VST3/`. On first open, right-click → Open (or run `xattr -cr Spectrasaurus.vst3` in Terminal) to bypass Gatekeeper.
+
+            **Windows:** Unzip and copy `Spectrasaurus.vst3` to `C:\Program Files\Common Files\VST3\`.
+
+            Then rescan plugins in your DAW.
+          generate_release_notes: true

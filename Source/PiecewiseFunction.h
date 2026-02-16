@@ -44,6 +44,15 @@ public:
     // Flatten just the segment containing x by setting both bracketing points' Y to the given y
     void flattenSegmentAt(float x, float y);
 
+    // Check if the curve is flat at a given Y value (all points have the same Y)
+    bool isFlat(float y, float tolerance = 1e-6f) const
+    {
+        for (const auto& pt : points)
+            if (std::abs(pt.y - y) > tolerance)
+                return false;
+        return true;
+    }
+
     // Copy from another function
     void copyFrom(const PiecewiseFunction& other);
 

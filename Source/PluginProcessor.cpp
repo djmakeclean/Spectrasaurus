@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "DebugLogger.h"
 #include <complex>
+#include <cstring>
 
 SpectrasaurusAudioProcessor::SpectrasaurusAudioProcessor()
      : AudioProcessor (BusesProperties()
@@ -84,7 +85,15 @@ void SpectrasaurusAudioProcessor::prepareToPlay (double sampleRate, int samplesP
     currentSampleRate = sampleRate;
     currentFFTSize = banks[0].fftSize;
     currentOverlapFactor = banks[0].overlapFactor;
-    maxDelaySamples = static_cast<int>(sampleRate * 1.0);
+    // Compute delay buffer size from actual bank settings (not a fixed max)
+    float maxDelayMs = 0.0f;
+    for (auto& bank : banks)
+    {
+        maxDelayMs = std::max(maxDelayMs, bank.delayMaxTimeMsL);
+        maxDelayMs = std::max(maxDelayMs, bank.delayMaxTimeMsR);
+    }
+    maxDelayMs = std::max(maxDelayMs, 1000.0f); // minimum 1 second capacity
+    maxDelaySamples = static_cast<int>((maxDelayMs / 1000.0f) * sampleRate);
 
     DEBUG_LOG("FFT size: ", currentFFTSize);
     DEBUG_LOG("Overlap factor: ", currentOverlapFactor);
@@ -143,6 +152,51 @@ void SpectrasaurusAudioProcessor::prepareToPlay (double sampleRate, int samplesP
     }
 
     DEBUG_LOG("=== prepareToPlay completed ===");
+}
+
+void SpectrasaurusAudioProcessor::reallocateDelayBuffersIfNeeded()
+{
+    float maxDelayMs = 0.0f;
+    for (auto& bank : banks)
+    {
+        maxDelayMs = std::max(maxDelayMs, bank.delayMaxTimeMsL);
+        maxDelayMs = std::max(maxDelayMs, bank.delayMaxTimeMsR);
+    }
+    maxDelayMs = std::max(maxDelayMs, 1000.0f);
+    int needed = static_cast<int>((maxDelayMs / 1000.0f) * currentSampleRate);
+
+    if (needed <= maxDelaySamples)
+        return; // current allocation is sufficient
+
+    suspendProcessing(true);
+
+    maxDelaySamples = needed;
+    int hopSize = currentFFTSize / currentOverlapFactor;
+    int numBins = currentFFTSize / 2;
+    int maxDelayFrames = maxDelaySamples / hopSize;
+
+    leftBinDelayBuffers.clear();
+    rightBinDelayBuffers.clear();
+    leftBinDelayWritePos.clear();
+    rightBinDelayWritePos.clear();
+
+    for (int i = 0; i < numBins; ++i)
+    {
+        leftBinDelayBuffers.emplace_back(2, maxDelayFrames);
+        rightBinDelayBuffers.emplace_back(2, maxDelayFrames);
+        leftBinDelayBuffers[i].clear();
+        rightBinDelayBuffers[i].clear();
+        leftBinDelayWritePos.push_back(0);
+        rightBinDelayWritePos.push_back(0);
+    }
+
+    // Clear feedback buffers (stale feedback from old buffer layout)
+    std::fill(feedbackLeftReal.begin(), feedbackLeftReal.end(), 0.0f);
+    std::fill(feedbackLeftImag.begin(), feedbackLeftImag.end(), 0.0f);
+    std::fill(feedbackRightReal.begin(), feedbackRightReal.end(), 0.0f);
+    std::fill(feedbackRightImag.begin(), feedbackRightImag.end(), 0.0f);
+
+    suspendProcessing(false);
 }
 
 void SpectrasaurusAudioProcessor::releaseResources()
@@ -460,7 +514,7 @@ void SpectrasaurusAudioProcessor::setStateInformation (const void* data, int siz
     }
 }
 
-SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluateBinParameters(int binIndex)
+SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluateBinParameters(int binIndex, const SkipFlags& skip)
 {
     float x = getMorphX();
     float y = getMorphY();
@@ -476,11 +530,6 @@ SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluate
                   " C=", (1.0f - x) * y, " D=", x * y);
     }
 
-    // Bilinear interpolation weights
-    // A: top-left (x=0, y=0)
-    // B: top-right (x=1, y=0)
-    // C: bottom-left (x=0, y=1)
-    // D: bottom-right (x=1, y=1)
     float weightA = (1.0f - x) * (1.0f - y);
     float weightB = x * (1.0f - y);
     float weightC = (1.0f - x) * y;
@@ -488,121 +537,166 @@ SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluate
 
     BinParameters params;
 
-    // Step 1: Interpolate NORMALIZED curve values (0-1) from each bank
-    float delayLNorm_A = banks[0].evaluateCurveNormalized(CurveType::DelayL, binIndex, currentSampleRate);
-    float delayLNorm_B = banks[1].evaluateCurveNormalized(CurveType::DelayL, binIndex, currentSampleRate);
-    float delayLNorm_C = banks[2].evaluateCurveNormalized(CurveType::DelayL, binIndex, currentSampleRate);
-    float delayLNorm_D = banks[3].evaluateCurveNormalized(CurveType::DelayL, binIndex, currentSampleRate);
-    float delayLNorm = weightA * delayLNorm_A + weightB * delayLNorm_B + weightC * delayLNorm_C + weightD * delayLNorm_D;
+    // Delay curves
+    float delayLNorm = 0.0f, delayRNorm = 0.0f;
+    float delayMaxMsL = 0.0f, delayMaxMsR = 0.0f;
+    float gainDB = 0.0f;
 
-    float delayRNorm_A = banks[0].evaluateCurveNormalized(CurveType::DelayR, binIndex, currentSampleRate);
-    float delayRNorm_B = banks[1].evaluateCurveNormalized(CurveType::DelayR, binIndex, currentSampleRate);
-    float delayRNorm_C = banks[2].evaluateCurveNormalized(CurveType::DelayR, binIndex, currentSampleRate);
-    float delayRNorm_D = banks[3].evaluateCurveNormalized(CurveType::DelayR, binIndex, currentSampleRate);
-    float delayRNorm = weightA * delayRNorm_A + weightB * delayRNorm_B + weightC * delayRNorm_C + weightD * delayRNorm_D;
+    if (!skip.delay)
+    {
+        auto evalCurve4 = [&](CurveType ct) -> float
+        {
+            float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            return weightA * a + weightB * b + weightC * c + weightD * d;
+        };
 
-    float panL_A = banks[0].evaluateCurveNormalized(CurveType::PanL, binIndex, currentSampleRate);
-    float panL_B = banks[1].evaluateCurveNormalized(CurveType::PanL, binIndex, currentSampleRate);
-    float panL_C = banks[2].evaluateCurveNormalized(CurveType::PanL, binIndex, currentSampleRate);
-    float panL_D = banks[3].evaluateCurveNormalized(CurveType::PanL, binIndex, currentSampleRate);
-    params.panL = weightA * panL_A + weightB * panL_B + weightC * panL_C + weightD * panL_D;
+        delayLNorm = evalCurve4(CurveType::DelayL);
+        delayRNorm = evalCurve4(CurveType::DelayR);
 
-    float panR_A = banks[0].evaluateCurveNormalized(CurveType::PanR, binIndex, currentSampleRate);
-    float panR_B = banks[1].evaluateCurveNormalized(CurveType::PanR, binIndex, currentSampleRate);
-    float panR_C = banks[2].evaluateCurveNormalized(CurveType::PanR, binIndex, currentSampleRate);
-    float panR_D = banks[3].evaluateCurveNormalized(CurveType::PanR, binIndex, currentSampleRate);
-    params.panR = weightA * panR_A + weightB * panR_B + weightC * panR_C + weightD * panR_D;
+        delayMaxMsL = weightA * banks[0].delayMaxTimeMsL + weightB * banks[1].delayMaxTimeMsL +
+                      weightC * banks[2].delayMaxTimeMsL + weightD * banks[3].delayMaxTimeMsL;
+        delayMaxMsR = weightA * banks[0].delayMaxTimeMsR + weightB * banks[1].delayMaxTimeMsR +
+                      weightC * banks[2].delayMaxTimeMsR + weightD * banks[3].delayMaxTimeMsR;
 
-    // Step 2: Interpolate bank SETTINGS (delayMax per channel, log scale, gain)
-    float delayMaxMsL = weightA * banks[0].delayMaxTimeMsL + weightB * banks[1].delayMaxTimeMsL +
-                        weightC * banks[2].delayMaxTimeMsL + weightD * banks[3].delayMaxTimeMsL;
-    float delayMaxMsR = weightA * banks[0].delayMaxTimeMsR + weightB * banks[1].delayMaxTimeMsR +
-                        weightC * banks[2].delayMaxTimeMsR + weightD * banks[3].delayMaxTimeMsR;
+        float logScaleWeightL = weightA * (banks[0].delayLogScaleL ? 1.0f : 0.0f) +
+                                weightB * (banks[1].delayLogScaleL ? 1.0f : 0.0f) +
+                                weightC * (banks[2].delayLogScaleL ? 1.0f : 0.0f) +
+                                weightD * (banks[3].delayLogScaleL ? 1.0f : 0.0f);
+        float logScaleWeightR = weightA * (banks[0].delayLogScaleR ? 1.0f : 0.0f) +
+                                weightB * (banks[1].delayLogScaleR ? 1.0f : 0.0f) +
+                                weightC * (banks[2].delayLogScaleR ? 1.0f : 0.0f) +
+                                weightD * (banks[3].delayLogScaleR ? 1.0f : 0.0f);
+        bool useLogScaleL = logScaleWeightL > 0.5f;
+        bool useLogScaleR = logScaleWeightR > 0.5f;
 
-    // Per-channel log scale (weighted vote across banks)
-    float logScaleWeightL = weightA * (banks[0].delayLogScaleL ? 1.0f : 0.0f) +
-                            weightB * (banks[1].delayLogScaleL ? 1.0f : 0.0f) +
-                            weightC * (banks[2].delayLogScaleL ? 1.0f : 0.0f) +
-                            weightD * (banks[3].delayLogScaleL ? 1.0f : 0.0f);
-    float logScaleWeightR = weightA * (banks[0].delayLogScaleR ? 1.0f : 0.0f) +
-                            weightB * (banks[1].delayLogScaleR ? 1.0f : 0.0f) +
-                            weightC * (banks[2].delayLogScaleR ? 1.0f : 0.0f) +
-                            weightD * (banks[3].delayLogScaleR ? 1.0f : 0.0f);
-    bool useLogScaleL = logScaleWeightL > 0.5f;
-    bool useLogScaleR = logScaleWeightR > 0.5f;
+        if (useLogScaleL)
+            params.delayL = std::pow(delayMaxMsL, delayLNorm) / 1000.0f * currentSampleRate;
+        else
+            params.delayL = (delayLNorm * delayMaxMsL) / 1000.0f * currentSampleRate;
 
-    float gainDB = weightA * banks[0].gainDB + weightB * banks[1].gainDB +
-                   weightC * banks[2].gainDB + weightD * banks[3].gainDB;
+        if (useLogScaleR)
+            params.delayR = std::pow(delayMaxMsR, delayRNorm) / 1000.0f * currentSampleRate;
+        else
+            params.delayR = (delayRNorm * delayMaxMsR) / 1000.0f * currentSampleRate;
+    }
+    else
+    {
+        params.delayL = 0.0f;
+        params.delayR = 0.0f;
+    }
 
-    // Interpolate feedback curves (normalized 0-1, then convert to linear)
-    float fbLNorm_A = banks[0].evaluateCurveNormalized(CurveType::FeedbackL, binIndex, currentSampleRate);
-    float fbLNorm_B = banks[1].evaluateCurveNormalized(CurveType::FeedbackL, binIndex, currentSampleRate);
-    float fbLNorm_C = banks[2].evaluateCurveNormalized(CurveType::FeedbackL, binIndex, currentSampleRate);
-    float fbLNorm_D = banks[3].evaluateCurveNormalized(CurveType::FeedbackL, binIndex, currentSampleRate);
-    float fbLNorm = weightA * fbLNorm_A + weightB * fbLNorm_B + weightC * fbLNorm_C + weightD * fbLNorm_D;
+    gainDB = weightA * banks[0].gainDB + weightB * banks[1].gainDB +
+             weightC * banks[2].gainDB + weightD * banks[3].gainDB;
 
-    float fbRNorm_A = banks[0].evaluateCurveNormalized(CurveType::FeedbackR, binIndex, currentSampleRate);
-    float fbRNorm_B = banks[1].evaluateCurveNormalized(CurveType::FeedbackR, binIndex, currentSampleRate);
-    float fbRNorm_C = banks[2].evaluateCurveNormalized(CurveType::FeedbackR, binIndex, currentSampleRate);
-    float fbRNorm_D = banks[3].evaluateCurveNormalized(CurveType::FeedbackR, binIndex, currentSampleRate);
-    float fbRNorm = weightA * fbRNorm_A + weightB * fbRNorm_B + weightC * fbRNorm_C + weightD * fbRNorm_D;
+    // Pan curves
+    if (!skip.pan)
+    {
+        auto evalCurve4 = [&](CurveType ct) -> float
+        {
+            float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            return weightA * a + weightB * b + weightC * c + weightD * d;
+        };
+        params.panL = evalCurve4(CurveType::PanL);
+        params.panR = evalCurve4(CurveType::PanR);
+    }
+    else
+    {
+        params.panL = 0.0f;
+        params.panR = 0.0f;
+    }
 
-    // Convert feedback normalized values to linear gain (-60 dB floor)
-    if (fbLNorm <= 0.0f)
+    // Feedback curves
+    if (!skip.feedback)
+    {
+        auto evalCurve4 = [&](CurveType ct) -> float
+        {
+            float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            return weightA * a + weightB * b + weightC * c + weightD * d;
+        };
+        float fbLNorm = evalCurve4(CurveType::FeedbackL);
+        float fbRNorm = evalCurve4(CurveType::FeedbackR);
+
+        if (fbLNorm <= 0.0f)
+            params.feedbackL = 0.0f;
+        else
+            params.feedbackL = std::pow(10.0f, ((fbLNorm * 66.0f) - 60.0f) / 20.0f);
+
+        if (fbRNorm <= 0.0f)
+            params.feedbackR = 0.0f;
+        else
+            params.feedbackR = std::pow(10.0f, ((fbRNorm * 66.0f) - 60.0f) / 20.0f);
+    }
+    else
+    {
         params.feedbackL = 0.0f;
-    else
-        params.feedbackL = std::pow(10.0f, ((fbLNorm * 66.0f) - 60.0f) / 20.0f);
-
-    if (fbRNorm <= 0.0f)
         params.feedbackR = 0.0f;
-    else
-        params.feedbackR = std::pow(10.0f, ((fbRNorm * 66.0f) - 60.0f) / 20.0f);
+    }
 
-    // Step 3: Convert interpolated normalized values to actual delay using interpolated settings
-    if (useLogScaleL)
-        params.delayL = std::pow(delayMaxMsL, delayLNorm) / 1000.0f * currentSampleRate;
-    else
-        params.delayL = (delayLNorm * delayMaxMsL) / 1000.0f * currentSampleRate;
-
-    if (useLogScaleR)
-        params.delayR = std::pow(delayMaxMsR, delayRNorm) / 1000.0f * currentSampleRate;
-    else
-        params.delayR = (delayRNorm * delayMaxMsR) / 1000.0f * currentSampleRate;
-
-    // Interpolate dynamics curves (normalized 0-1, then convert to linear via dB = y*60 - 60)
-    auto interpolateDynamicsCurve = [&](CurveType ct) -> float
+    // Dynamics curves
+    if (!skip.dynamics)
     {
-        float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-        float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-        float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-        float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-        float norm = weightA * a + weightB * b + weightC * c + weightD * d;
-        if (norm <= 0.0f) return 0.0f;
-        float dB = (norm * 60.0f) - 60.0f;
-        return std::pow(10.0f, dB / 20.0f);
-    };
+        auto interpolateDynamicsCurve = [&](CurveType ct) -> float
+        {
+            float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float norm = weightA * a + weightB * b + weightC * c + weightD * d;
+            if (norm <= 0.0f) return 0.0f;
+            float dB = (norm * 60.0f) - 60.0f;
+            return std::pow(10.0f, dB / 20.0f);
+        };
 
-    params.preGainL = interpolateDynamicsCurve(CurveType::PreGainL);
-    params.preGainR = interpolateDynamicsCurve(CurveType::PreGainR);
-    params.minGateL = interpolateDynamicsCurve(CurveType::MinGateL);
-    params.minGateR = interpolateDynamicsCurve(CurveType::MinGateR);
-    params.maxClipL = interpolateDynamicsCurve(CurveType::MaxClipL);
-    params.maxClipR = interpolateDynamicsCurve(CurveType::MaxClipR);
-
-    // Interpolate shift/multiply (keep as normalized 0-1, convert to Hz/factor in processFFTFrame)
-    auto interpolateNormCurve = [&](CurveType ct) -> float
+        params.preGainL = interpolateDynamicsCurve(CurveType::PreGainL);
+        params.preGainR = interpolateDynamicsCurve(CurveType::PreGainR);
+        params.minGateL = interpolateDynamicsCurve(CurveType::MinGateL);
+        params.minGateR = interpolateDynamicsCurve(CurveType::MinGateR);
+        params.maxClipL = interpolateDynamicsCurve(CurveType::MaxClipL);
+        params.maxClipR = interpolateDynamicsCurve(CurveType::MaxClipR);
+    }
+    else
     {
-        float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-        float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-        float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-        float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-        return weightA * a + weightB * b + weightC * c + weightD * d;
-    };
+        params.preGainL = 1.0f;
+        params.preGainR = 1.0f;
+        params.minGateL = 0.0f;
+        params.minGateR = 0.0f;
+        params.maxClipL = 1.0f;
+        params.maxClipR = 1.0f;
+    }
 
-    params.shiftL = interpolateNormCurve(CurveType::ShiftL);
-    params.shiftR = interpolateNormCurve(CurveType::ShiftR);
-    params.multiplyL = interpolateNormCurve(CurveType::MultiplyL);
-    params.multiplyR = interpolateNormCurve(CurveType::MultiplyR);
+    // Shift/multiply curves
+    if (!skip.shift)
+    {
+        auto interpolateNormCurve = [&](CurveType ct) -> float
+        {
+            float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
+            return weightA * a + weightB * b + weightC * c + weightD * d;
+        };
+
+        params.shiftL = interpolateNormCurve(CurveType::ShiftL);
+        params.shiftR = interpolateNormCurve(CurveType::ShiftR);
+        params.multiplyL = interpolateNormCurve(CurveType::MultiplyL);
+        params.multiplyR = interpolateNormCurve(CurveType::MultiplyR);
+    }
+    else
+    {
+        params.shiftL = 0.5f;
+        params.shiftR = 0.5f;
+        params.multiplyL = 0.5f;
+        params.multiplyR = 0.5f;
+    }
 
     if (shouldLogMorph)
     {
@@ -690,6 +784,7 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
 
     // Lock bank data while we read curves (protects against message-thread mutations)
     bool shiftBeforeMult;
+    SkipFlags skipFlags;
     {
         juce::SpinLock::ScopedLockType lock(bankLock);
 
@@ -708,6 +803,38 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
                           (maxW == wC) ? banks[2].shiftBeforeMultiply :
                                          banks[3].shiftBeforeMultiply;
 
+        // Compute identity-skip flags: skip entire processing phases when all banks are at defaults
+        skipFlags.delay    = true;
+        skipFlags.pan      = true;
+        skipFlags.feedback = true;
+        skipFlags.dynamics = true;
+        skipFlags.shift    = true;
+        for (auto& bank : banks)
+        {
+            if (!bank.delayL.isFlat(0.0f) || !bank.delayR.isFlat(0.0f))
+                skipFlags.delay = false;
+            if (!bank.panL.isFlat(0.0f) || !bank.panR.isFlat(0.0f))
+                skipFlags.pan = false;
+            if (!bank.feedbackL.isFlat(0.0f) || !bank.feedbackR.isFlat(0.0f))
+                skipFlags.feedback = false;
+            if (!bank.preGainL.isFlat(1.0f) || !bank.preGainR.isFlat(1.0f) ||
+                !bank.minGateL.isFlat(0.0f) || !bank.minGateR.isFlat(0.0f) ||
+                !bank.maxClipL.isFlat(1.0f) || !bank.maxClipR.isFlat(1.0f))
+                skipFlags.dynamics = false;
+            if (!bank.shiftL.isFlat(0.5f) || !bank.shiftR.isFlat(0.5f) ||
+                !bank.multiplyL.isFlat(0.5f) || !bank.multiplyR.isFlat(0.5f))
+                skipFlags.shift = false;
+        }
+
+    // Clear feedback buffers when feedback is at identity (ensures clean state on re-enable)
+    if (skipFlags.feedback)
+    {
+        std::memset(feedbackLeftReal.data(), 0, numBins * sizeof(float));
+        std::memset(feedbackLeftImag.data(), 0, numBins * sizeof(float));
+        std::memset(feedbackRightReal.data(), 0, numBins * sizeof(float));
+        std::memset(feedbackRightImag.data(), 0, numBins * sizeof(float));
+    }
+
     for (int bin = 0; bin < numBins; ++bin)
     {
         int realIdx = bin;
@@ -718,40 +845,46 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
         float rightReal = rightFFTData[realIdx];
         float rightImag = (bin == 0 || bin == numBins) ? 0.0f : rightFFTData[imagIdx];
 
-        BinParameters params = evaluateBinParameters(bin);
+        BinParameters params = evaluateBinParameters(bin, skipFlags);
         allParams[bin] = params;
 
-        // Add feedback
-        leftReal  += feedbackLeftReal[bin];
-        leftImag  += feedbackLeftImag[bin];
-        rightReal += feedbackRightReal[bin];
-        rightImag += feedbackRightImag[bin];
-
-        // PreGain
-        leftReal  *= params.preGainL;
-        leftImag  *= params.preGainL;
-        rightReal *= params.preGainR;
-        rightImag *= params.preGainR;
-
-        // Gate/Clip
-        auto applyGateClip = [halfN](float& real, float& imag, float gateThresh, float clipThresh)
+        // Add feedback (skip when all banks have feedback at identity)
+        if (!skipFlags.feedback)
         {
-            float mag = std::sqrt(real * real + imag * imag);
-            float magNorm = mag / halfN;
-            if (magNorm < gateThresh)
+            leftReal  += feedbackLeftReal[bin];
+            leftImag  += feedbackLeftImag[bin];
+            rightReal += feedbackRightReal[bin];
+            rightImag += feedbackRightImag[bin];
+        }
+
+        // PreGain (skip multiply-by-1 when dynamics at identity)
+        if (!skipFlags.dynamics)
+        {
+            leftReal  *= params.preGainL;
+            leftImag  *= params.preGainL;
+            rightReal *= params.preGainR;
+            rightImag *= params.preGainR;
+
+            // Gate/Clip
+            auto applyGateClip = [halfN](float& real, float& imag, float gateThresh, float clipThresh)
             {
-                real = 0.0f;
-                imag = 0.0f;
-            }
-            else if (magNorm > clipThresh && mag > 0.0f)
-            {
-                float scale = (clipThresh * halfN) / mag;
-                real *= scale;
-                imag *= scale;
-            }
-        };
-        applyGateClip(leftReal, leftImag, params.minGateL, params.maxClipL);
-        applyGateClip(rightReal, rightImag, params.minGateR, params.maxClipR);
+                float mag = std::sqrt(real * real + imag * imag);
+                float magNorm = mag / halfN;
+                if (magNorm < gateThresh)
+                {
+                    real = 0.0f;
+                    imag = 0.0f;
+                }
+                else if (magNorm > clipThresh && mag > 0.0f)
+                {
+                    float scale = (clipThresh * halfN) / mag;
+                    real *= scale;
+                    imag *= scale;
+                }
+            };
+            applyGateClip(leftReal, leftImag, params.minGateL, params.maxClipL);
+            applyGateClip(rightReal, rightImag, params.minGateR, params.maxClipR);
+        }
 
         // Spectrograph capture
         if (captureSpectrograph && bin < kMaxSpectrographBins)
@@ -776,6 +909,17 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
     std::vector<float> shiftedLeftImag(numBins, 0.0f);
     std::vector<float> shiftedRightReal(numBins, 0.0f);
     std::vector<float> shiftedRightImag(numBins, 0.0f);
+
+    if (skipFlags.shift)
+    {
+        // Identity: no shift or multiply — direct copy instead of scatter
+        std::memcpy(shiftedLeftReal.data(), tempLeftReal.data(), numBins * sizeof(float));
+        std::memcpy(shiftedLeftImag.data(), tempLeftImag.data(), numBins * sizeof(float));
+        std::memcpy(shiftedRightReal.data(), tempRightReal.data(), numBins * sizeof(float));
+        std::memcpy(shiftedRightImag.data(), tempRightImag.data(), numBins * sizeof(float));
+    }
+    else
+    {
 
     float binFreqStep = static_cast<float>(currentSampleRate) / static_cast<float>(currentFFTSize);
 
@@ -862,6 +1006,7 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
             shiftedRightImag[idx] += tempRightImag[bin];
         }
     }
+    } // end else (shift not skipped)
 
     // ===== PHASE 3: Per-bin delay + pan + feedback store from shifted arrays =====
     for (int bin = 0; bin < numBins; ++bin)
@@ -876,75 +1021,101 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
 
         auto& params = allParams[bin];
 
-        // Delay
-        int delayL_samples = static_cast<int>(params.delayL);
-        int delayR_samples = static_cast<int>(params.delayR);
-        int delayL = delayL_samples / hopSize;
-        int delayR = delayR_samples / hopSize;
-        delayL = std::clamp(delayL, 0, maxDelayFrames - 1);
-        delayR = std::clamp(delayR, 0, maxDelayFrames - 1);
-
+        // Delay (skip entirely when all delay curves are at identity)
         float delayedLeftReal, delayedLeftImag, delayedRightReal, delayedRightImag;
+        int delayL = 0, delayR = 0;
 
-        if (delayL > 0)
+        if (!skipFlags.delay)
         {
-            int& wp = leftBinDelayWritePos[bin];
-            leftBinDelayBuffers[bin].setSample(0, wp, leftReal);
-            leftBinDelayBuffers[bin].setSample(1, wp, leftImag);
-            int rp = (wp - delayL + maxDelayFrames) % maxDelayFrames;
-            delayedLeftReal = leftBinDelayBuffers[bin].getSample(0, rp);
-            delayedLeftImag = leftBinDelayBuffers[bin].getSample(1, rp);
-            wp = (wp + 1) % maxDelayFrames;
+            int delayL_samples = static_cast<int>(params.delayL);
+            int delayR_samples = static_cast<int>(params.delayR);
+            delayL = delayL_samples / hopSize;
+            delayR = delayR_samples / hopSize;
+            delayL = std::clamp(delayL, 0, maxDelayFrames - 1);
+            delayR = std::clamp(delayR, 0, maxDelayFrames - 1);
+
+            if (delayL > 0)
+            {
+                int& wp = leftBinDelayWritePos[bin];
+                leftBinDelayBuffers[bin].setSample(0, wp, leftReal);
+                leftBinDelayBuffers[bin].setSample(1, wp, leftImag);
+                int rp = (wp - delayL + maxDelayFrames) % maxDelayFrames;
+                delayedLeftReal = leftBinDelayBuffers[bin].getSample(0, rp);
+                delayedLeftImag = leftBinDelayBuffers[bin].getSample(1, rp);
+                wp = (wp + 1) % maxDelayFrames;
+            }
+            else
+            {
+                delayedLeftReal = leftReal;
+                delayedLeftImag = leftImag;
+            }
+
+            if (delayR > 0)
+            {
+                int& wp = rightBinDelayWritePos[bin];
+                rightBinDelayBuffers[bin].setSample(0, wp, rightReal);
+                rightBinDelayBuffers[bin].setSample(1, wp, rightImag);
+                int rp = (wp - delayR + maxDelayFrames) % maxDelayFrames;
+                delayedRightReal = rightBinDelayBuffers[bin].getSample(0, rp);
+                delayedRightImag = rightBinDelayBuffers[bin].getSample(1, rp);
+                wp = (wp + 1) % maxDelayFrames;
+            }
+            else
+            {
+                delayedRightReal = rightReal;
+                delayedRightImag = rightImag;
+            }
         }
         else
         {
             delayedLeftReal = leftReal;
             delayedLeftImag = leftImag;
-        }
-
-        if (delayR > 0)
-        {
-            int& wp = rightBinDelayWritePos[bin];
-            rightBinDelayBuffers[bin].setSample(0, wp, rightReal);
-            rightBinDelayBuffers[bin].setSample(1, wp, rightImag);
-            int rp = (wp - delayR + maxDelayFrames) % maxDelayFrames;
-            delayedRightReal = rightBinDelayBuffers[bin].getSample(0, rp);
-            delayedRightImag = rightBinDelayBuffers[bin].getSample(1, rp);
-            wp = (wp + 1) % maxDelayFrames;
-        }
-        else
-        {
             delayedRightReal = rightReal;
             delayedRightImag = rightImag;
         }
 
-        // Pan crossfeed
-        float panL = params.panL;
-        float panR = params.panR;
-        float leftToLeft   = std::cos(panL * M_PI * 0.5f);
-        float leftToRight  = std::sin(panL * M_PI * 0.5f);
-        float rightToRight = std::cos(panR * M_PI * 0.5f);
-        float rightToLeft  = std::sin(panR * M_PI * 0.5f);
+        // Pan crossfeed (skip trig when all pan curves are at identity)
+        float outputLeftReal, outputLeftImag, outputRightReal, outputRightImag;
 
-        float outputLeftReal  = delayedLeftReal * leftToLeft + delayedRightReal * rightToLeft;
-        float outputLeftImag  = delayedLeftImag * leftToLeft + delayedRightImag * rightToLeft;
-        float outputRightReal = delayedRightReal * rightToRight + delayedLeftReal * leftToRight;
-        float outputRightImag = delayedRightImag * rightToRight + delayedLeftImag * leftToRight;
+        if (!skipFlags.pan)
+        {
+            float panL = params.panL;
+            float panR = params.panR;
+            float leftToLeft   = std::cos(panL * M_PI * 0.5f);
+            float leftToRight  = std::sin(panL * M_PI * 0.5f);
+            float rightToRight = std::cos(panR * M_PI * 0.5f);
+            float rightToLeft  = std::sin(panR * M_PI * 0.5f);
 
-        // Feedback store
-        float fbL = (delayL >= minFeedbackDelayFrames) ? params.feedbackL : 0.0f;
-        float fbR = (delayR >= minFeedbackDelayFrames) ? params.feedbackR : 0.0f;
+            outputLeftReal  = delayedLeftReal * leftToLeft + delayedRightReal * rightToLeft;
+            outputLeftImag  = delayedLeftImag * leftToLeft + delayedRightImag * rightToLeft;
+            outputRightReal = delayedRightReal * rightToRight + delayedLeftReal * leftToRight;
+            outputRightImag = delayedRightImag * rightToRight + delayedLeftImag * leftToRight;
+        }
+        else
+        {
+            outputLeftReal  = delayedLeftReal;
+            outputLeftImag  = delayedLeftImag;
+            outputRightReal = delayedRightReal;
+            outputRightImag = delayedRightImag;
+        }
 
-        feedbackLeftReal[bin]  = outputLeftReal * fbL;
-        feedbackLeftImag[bin]  = outputLeftImag * fbL;
-        feedbackRightReal[bin] = outputRightReal * fbR;
-        feedbackRightImag[bin] = outputRightImag * fbR;
+        // Feedback store (skip when all feedback curves are at identity)
+        if (!skipFlags.feedback)
+        {
+            float fbL = (delayL >= minFeedbackDelayFrames) ? params.feedbackL : 0.0f;
+            float fbR = (delayR >= minFeedbackDelayFrames) ? params.feedbackR : 0.0f;
 
-        auto sanitize = [](float& v) { if (!std::isfinite(v)) v = 0.0f; };
-        sanitize(feedbackLeftReal[bin]);
-        sanitize(feedbackLeftImag[bin]);
-        sanitize(feedbackRightReal[bin]);
-        sanitize(feedbackRightImag[bin]);
+            feedbackLeftReal[bin]  = outputLeftReal * fbL;
+            feedbackLeftImag[bin]  = outputLeftImag * fbL;
+            feedbackRightReal[bin] = outputRightReal * fbR;
+            feedbackRightImag[bin] = outputRightImag * fbR;
+
+            auto sanitize = [](float& v) { if (!std::isfinite(v)) v = 0.0f; };
+            sanitize(feedbackLeftReal[bin]);
+            sanitize(feedbackLeftImag[bin]);
+            sanitize(feedbackRightReal[bin]);
+            sanitize(feedbackRightImag[bin]);
+        }
 
         // Write to output FFT buffer
         leftFFTData[realIdx] = outputLeftReal;
