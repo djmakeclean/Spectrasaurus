@@ -24,6 +24,10 @@ cmake --build build --target Spectrasaurus_VST3 --config Release
 
 The built plugin is at `build/Spectrasaurus_artefacts/Release/VST3/Spectrasaurus.vst3`.
 
+## Contributing
+
+Bug reports and feature requests are welcome -- open an [Issue](https://github.com/patdemichele/Spectrasaurus/issues). Pull requests are encouraged too, whether it's code changes, new features, or just adding presets. To contribute presets, add `.spectral` files under `Presets/` in a folder with your name and open a PR.
+
 ## License
 
 See LICENSE file for details.
