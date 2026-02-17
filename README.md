@@ -6,7 +6,7 @@ A spectral processing VST3 plugin. Per-bin delay, panning, dynamics, frequency s
 
 Go to the [Releases](https://github.com/patdemichele/Spectrasaurus/releases) page. Download the zip for your platform:
 
-- **macOS** (Intel + Apple Silicon): Unzip, copy `Spectrasaurus.vst3` to `~/Library/Audio/Plug-Ins/VST3/`. On first launch you may need to right-click the plugin and select Open, or run `xattr -cr Spectrasaurus.vst3` in Terminal.
+- **macOS** (Intel + Apple Silicon): Unzip, copy `Spectrasaurus.vst3` to `~/Library/Audio/Plug-Ins/VST3/` (per-user) or `/Library/Audio/Plug-Ins/VST3/` (system-wide). On first launch you may need to right-click the plugin and select Open, or run `xattr -cr Spectrasaurus.vst3` in Terminal.
 - **Windows**: Unzip, copy `Spectrasaurus.vst3` to `C:\Program Files\Common Files\VST3\`.
 
 Rescan plugins in your DAW. Presets are included in the zip under `Presets/Factory/`.

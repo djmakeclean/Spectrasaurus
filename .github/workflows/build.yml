@@ -83,7 +83,7 @@ jobs:
           body: |
             ## Install
 
-            **macOS:** Unzip and copy `Spectrasaurus.vst3` to `~/Library/Audio/Plug-Ins/VST3/`. On first open, right-click → Open (or run `xattr -cr Spectrasaurus.vst3` in Terminal) to bypass Gatekeeper.
+            **macOS:** Unzip and copy `Spectrasaurus.vst3` to `~/Library/Audio/Plug-Ins/VST3/` (per-user) or `/Library/Audio/Plug-Ins/VST3/` (system-wide). On first open, right-click → Open (or run `xattr -cr Spectrasaurus.vst3` in Terminal) to bypass Gatekeeper.
 
             **Windows:** Unzip and copy `Spectrasaurus.vst3` to `C:\Program Files\Common Files\VST3\`.
 
