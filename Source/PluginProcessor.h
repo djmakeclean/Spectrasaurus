@@ -128,6 +128,11 @@ private:
 
     void processFFTFrame();
 
+    // Per-instance debug counters (not static — avoids cross-instance data races)
+    int blockCounter = 0;
+    int frameCounter = 0;
+    int morphLogCounter = 0;
+
     double currentSampleRate = 48000.0;
     int currentFFTSize = 2048;
     int currentOverlapFactor = 4;
@@ -165,6 +170,11 @@ private:
         bool dynamics = false;
         bool shift = false;
     };
+
+    // Pre-allocated working buffers for processFFTFrame (avoid heap alloc on audio thread)
+    std::vector<float> tempLeftReal, tempLeftImag, tempRightReal, tempRightImag;
+    std::vector<float> shiftedLeftReal, shiftedLeftImag, shiftedRightReal, shiftedRightImag;
+    std::vector<BinParameters> allParams;
 
     BinParameters evaluateBinParameters(int binIndex, const SkipFlags& skip);
 

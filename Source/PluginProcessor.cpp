@@ -123,6 +123,9 @@ void SpectrasaurusAudioProcessor::prepareToPlay (double sampleRate, int samplesP
     // Start writing ahead of reading by one FFT size
     outputBufferWritePos = currentFFTSize;
 
+    // Report latency to host for delay compensation
+    setLatencySamples(currentFFTSize);
+
     // Allocate delay buffers (sized in frames, not samples)
     int numBins = currentFFTSize / 2;
     int maxDelayFrames = maxDelaySamples / hopSize;
@@ -137,6 +140,17 @@ void SpectrasaurusAudioProcessor::prepareToPlay (double sampleRate, int samplesP
     feedbackLeftImag.assign(numBins, 0.0f);
     feedbackRightReal.assign(numBins, 0.0f);
     feedbackRightImag.assign(numBins, 0.0f);
+
+    // Pre-allocate working buffers for processFFTFrame (no heap alloc on audio thread)
+    tempLeftReal.resize(numBins);
+    tempLeftImag.resize(numBins);
+    tempRightReal.resize(numBins);
+    tempRightImag.resize(numBins);
+    shiftedLeftReal.resize(numBins);
+    shiftedLeftImag.resize(numBins);
+    shiftedRightReal.resize(numBins);
+    shiftedRightImag.resize(numBins);
+    allParams.resize(numBins);
 
     DEBUG_LOG("Allocating delay buffers for ", numBins, " bins, ", maxDelayFrames, " frames each");
 
@@ -230,7 +244,6 @@ void SpectrasaurusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     if (totalNumInputChannels < 2 || totalNumOutputChannels < 2)
         return;
 
-    static int blockCounter = 0;
     blockCounter++;
 
     // Log first few blocks and then occasionally
@@ -519,12 +532,11 @@ SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluate
     float x = getMorphX();
     float y = getMorphY();
 
-    static int logCounter = 0;
-    bool shouldLogMorph = (logCounter++ % 100 == 0 && binIndex == 10);
+    bool shouldLogMorph = (morphLogCounter++ % 100 == 0 && binIndex == 10);
 
     if (shouldLogMorph)
     {
-        DEBUG_LOG("=== MORPH DEBUG (frame ", logCounter, ") ===");
+        DEBUG_LOG("=== MORPH DEBUG (frame ", morphLogCounter, ") ===");
         DEBUG_LOG("  X param value: ", x, " Y param value: ", y);
         DEBUG_LOG("  Weights: A=", (1.0f - x) * (1.0f - y), " B=", x * (1.0f - y),
                   " C=", (1.0f - x) * y, " D=", x * y);
@@ -712,7 +724,6 @@ SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluate
 
 void SpectrasaurusAudioProcessor::processFFTFrame()
 {
-    static int frameCounter = 0;
     frameCounter++;
     bool shouldLog = (frameCounter <= 3 || frameCounter % 100 == 0);
 
@@ -774,13 +785,6 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
     float localSpecR[kMaxSpectrographBins];
 
     // ===== PHASE 1: Per-bin feedback + dynamics + spectrograph capture =====
-    // Store results in temp arrays for shift/multiply scatter
-    std::vector<float> tempLeftReal(numBins, 0.0f);
-    std::vector<float> tempLeftImag(numBins, 0.0f);
-    std::vector<float> tempRightReal(numBins, 0.0f);
-    std::vector<float> tempRightImag(numBins, 0.0f);
-    // Store per-bin parameters for phase 3
-    std::vector<BinParameters> allParams(numBins);
 
     // Lock bank data while we read curves (protects against message-thread mutations)
     bool shiftBeforeMult;
@@ -905,11 +909,6 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
     } // bankLock released — all bank curve data is now in temp arrays
 
     // ===== PHASE 2: Spectral shift/multiply (forward scatter) =====
-    std::vector<float> shiftedLeftReal(numBins, 0.0f);
-    std::vector<float> shiftedLeftImag(numBins, 0.0f);
-    std::vector<float> shiftedRightReal(numBins, 0.0f);
-    std::vector<float> shiftedRightImag(numBins, 0.0f);
-
     if (skipFlags.shift)
     {
         // Identity: no shift or multiply — direct copy instead of scatter
@@ -920,6 +919,11 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
     }
     else
     {
+    // Zero the shifted arrays before scatter accumulation
+    std::memset(shiftedLeftReal.data(), 0, numBins * sizeof(float));
+    std::memset(shiftedLeftImag.data(), 0, numBins * sizeof(float));
+    std::memset(shiftedRightReal.data(), 0, numBins * sizeof(float));
+    std::memset(shiftedRightImag.data(), 0, numBins * sizeof(float));
 
     float binFreqStep = static_cast<float>(currentSampleRate) / static_cast<float>(currentFFTSize);
 

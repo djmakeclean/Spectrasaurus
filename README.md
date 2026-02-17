@@ -11,6 +11,8 @@ Go to the [Releases](https://github.com/patdemichele/Spectrasaurus/releases) pag
 
 Rescan plugins in your DAW. Presets are included in the zip under `Presets/Factory/`.
 
+**Known limitations:** This plugin is experimental. It performs heavy per-bin FFT processing and introduces latency. Running multiple instances in the same project may cause audio glitches or interfere with other tracks. For best results, limit yourself to one or two instances per session, or bounce affected tracks to audio.
+
 ## Building from source
 
 Requires CMake 3.22+ and a C++17 compiler. JUCE is fetched automatically.
