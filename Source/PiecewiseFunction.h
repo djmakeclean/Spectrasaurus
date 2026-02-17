@@ -60,6 +60,9 @@ public:
     juce::var toVar() const;
     void fromVar(const juce::var& v);
 
+    // Version counter — incremented on every mutation for LUT cache invalidation
+    uint32_t version = 0;
+
 private:
     std::vector<ControlPoint> points;
 

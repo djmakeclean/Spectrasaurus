@@ -159,6 +159,51 @@ float Bank::evaluateCurveNormalized(CurveType curveType, int binIndex, float sam
     return curve.evaluate(normalizedFreq);
 }
 
+void Bank::rebuildLUTIfNeeded(int numBins, float sampleRate)
+{
+    if (numBins > kLUTMaxBins)
+        numBins = kLUTMaxBins;
+
+    bool fullRebuild = (std::abs(sampleRate - lutSampleRate) > 0.1f || numBins != lutNumBins);
+
+    if (fullRebuild)
+    {
+        lutSampleRate = sampleRate;
+        lutNumBins = numBins;
+
+        const float minFreq = 20.0f;
+        float nyquist = sampleRate / 2.0f;
+        lutLogMin = std::log10(minFreq);
+        float logMax = std::log10(nyquist);
+        float logRange = logMax - lutLogMin;
+        lutLogRangeInv = (logRange > 0.0f) ? (1.0f / logRange) : 1.0f;
+    }
+
+    float binFreqStep = sampleRate / static_cast<float>(fftSize);
+
+    for (int c = 0; c < 16; ++c)
+    {
+        auto& curve = getCurve(static_cast<CurveType>(c));
+        if (!fullRebuild && curve.version == lutCurveVersions[c])
+            continue;
+
+        lutCurveVersions[c] = curve.version;
+
+        for (int bin = 0; bin < numBins; ++bin)
+        {
+            float freq = bin * binFreqStep;
+            float normalizedFreq;
+            if (freq < 20.0f)
+                normalizedFreq = 0.0f;
+            else
+                normalizedFreq = (std::log10(freq) - lutLogMin) * lutLogRangeInv;
+
+            normalizedFreq = std::clamp(normalizedFreq, 0.0f, 1.0f);
+            curveLUT[c][bin] = curve.evaluate(normalizedFreq);
+        }
+    }
+}
+
 juce::var Bank::toVar() const
 {
     auto* obj = new juce::DynamicObject();

@@ -11,6 +11,7 @@ void PiecewiseFunction::reset(float defaultY)
     points.clear();
     points.push_back(ControlPoint(0.0f, defaultY));
     points.push_back(ControlPoint(1.0f, defaultY));
+    ++version;
 }
 
 float PiecewiseFunction::evaluate(float x) const
@@ -42,6 +43,7 @@ void PiecewiseFunction::addPoint(float x, float y)
 
     points.push_back(ControlPoint(x, y));
     sortPoints();
+    ++version;
 }
 
 bool PiecewiseFunction::removePoint(int index)
@@ -51,6 +53,7 @@ bool PiecewiseFunction::removePoint(int index)
         return false;
 
     points.erase(points.begin() + index);
+    ++version;
     return true;
 }
 
@@ -79,6 +82,7 @@ void PiecewiseFunction::updatePoint(int index, float newX, float newY)
         points[index].y = newY;
         sortPoints();
     }
+    ++version;
 }
 
 int PiecewiseFunction::findClosestPoint(float x, float y, float maxDistance) const
@@ -139,8 +143,8 @@ void PiecewiseFunction::flattenSegmentAt(float x, float y)
             // Add new points at the segment endpoints with the flat Y value,
             // using a tiny offset so they sit just inside the segment
             float eps = std::max((rightX - leftX) * 0.001f, 1e-6f);
-            addPoint(leftX + eps, y);
-            addPoint(rightX - eps, y);
+            addPoint(leftX + eps, y);  // increments version
+            addPoint(rightX - eps, y); // increments version
             return;
         }
     }
@@ -149,6 +153,7 @@ void PiecewiseFunction::flattenSegmentAt(float x, float y)
 void PiecewiseFunction::copyFrom(const PiecewiseFunction& other)
 {
     points = other.points;
+    ++version;
 }
 
 juce::var PiecewiseFunction::toVar() const
@@ -183,7 +188,10 @@ void PiecewiseFunction::fromVar(const juce::var& v)
         }
     }
     if (points.empty())
-        reset();
+        reset(); // increments version
     else
+    {
         ensureEndpoints();
+        ++version;
+    }
 }

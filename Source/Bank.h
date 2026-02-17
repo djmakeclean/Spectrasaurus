@@ -105,6 +105,26 @@ public:
     juce::var toVar() const;
     void fromVar(const juce::var& v);
 
+    // --- Curve LUT precomputation ---
+    static constexpr int kLUTMaxBins = 1024;
+
+    // Per-curve LUT: stores raw normalized values (0-1) for each bin
+    float curveLUT[16][kLUTMaxBins] = {};
+
+    // Version tracking: last-seen version per curve
+    uint32_t lutCurveVersions[16] = {};
+
+    // Cached parameters for LUT validity
+    float lutSampleRate = 0.0f;
+    int lutNumBins = 0;
+
+    // Precomputed log-frequency constants (for LUT rebuild)
+    float lutLogMin = 0.0f;
+    float lutLogRangeInv = 1.0f;
+
+    // Rebuild any stale curves in the LUT. Called from audio thread under bankLock.
+    void rebuildLUTIfNeeded(int numBins, float sampleRate);
+
 private:
     // Convert normalized frequency (0-1) to actual frequency in Hz
     float normalizedToFrequency(float normalized, float sampleRate) const;

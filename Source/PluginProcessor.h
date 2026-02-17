@@ -131,7 +131,6 @@ private:
     // Per-instance debug counters (not static — avoids cross-instance data races)
     int blockCounter = 0;
     int frameCounter = 0;
-    int morphLogCounter = 0;
 
     double currentSampleRate = 48000.0;
     int currentFFTSize = 2048;
@@ -176,7 +175,8 @@ private:
     std::vector<float> shiftedLeftReal, shiftedLeftImag, shiftedRightReal, shiftedRightImag;
     std::vector<BinParameters> allParams;
 
-    BinParameters evaluateBinParameters(int binIndex, const SkipFlags& skip);
+    BinParameters evaluateBinParameters(int binIndex, const SkipFlags& skip,
+                                        float wA, float wB, float wC, float wD);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrasaurusAudioProcessor)
 };

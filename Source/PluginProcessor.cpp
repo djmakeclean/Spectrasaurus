@@ -527,60 +527,41 @@ void SpectrasaurusAudioProcessor::setStateInformation (const void* data, int siz
     }
 }
 
-SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluateBinParameters(int binIndex, const SkipFlags& skip)
+SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluateBinParameters(
+    int binIndex, const SkipFlags& skip,
+    float wA, float wB, float wC, float wD)
 {
-    float x = getMorphX();
-    float y = getMorphY();
-
-    bool shouldLogMorph = (morphLogCounter++ % 100 == 0 && binIndex == 10);
-
-    if (shouldLogMorph)
-    {
-        DEBUG_LOG("=== MORPH DEBUG (frame ", morphLogCounter, ") ===");
-        DEBUG_LOG("  X param value: ", x, " Y param value: ", y);
-        DEBUG_LOG("  Weights: A=", (1.0f - x) * (1.0f - y), " B=", x * (1.0f - y),
-                  " C=", (1.0f - x) * y, " D=", x * y);
-    }
-
-    float weightA = (1.0f - x) * (1.0f - y);
-    float weightB = x * (1.0f - y);
-    float weightC = (1.0f - x) * y;
-    float weightD = x * y;
-
     BinParameters params;
 
-    // Delay curves
-    float delayLNorm = 0.0f, delayRNorm = 0.0f;
-    float delayMaxMsL = 0.0f, delayMaxMsR = 0.0f;
-    float gainDB = 0.0f;
+    // Helper: read precomputed LUT values and morph-interpolate across 4 banks
+    auto evalCurve4 = [&](CurveType ct) -> float
+    {
+        int ci = static_cast<int>(ct);
+        return wA * banks[0].curveLUT[ci][binIndex]
+             + wB * banks[1].curveLUT[ci][binIndex]
+             + wC * banks[2].curveLUT[ci][binIndex]
+             + wD * banks[3].curveLUT[ci][binIndex];
+    };
 
+    // Delay curves
     if (!skip.delay)
     {
-        auto evalCurve4 = [&](CurveType ct) -> float
-        {
-            float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            return weightA * a + weightB * b + weightC * c + weightD * d;
-        };
+        float delayLNorm = evalCurve4(CurveType::DelayL);
+        float delayRNorm = evalCurve4(CurveType::DelayR);
 
-        delayLNorm = evalCurve4(CurveType::DelayL);
-        delayRNorm = evalCurve4(CurveType::DelayR);
+        float delayMaxMsL = wA * banks[0].delayMaxTimeMsL + wB * banks[1].delayMaxTimeMsL +
+                            wC * banks[2].delayMaxTimeMsL + wD * banks[3].delayMaxTimeMsL;
+        float delayMaxMsR = wA * banks[0].delayMaxTimeMsR + wB * banks[1].delayMaxTimeMsR +
+                            wC * banks[2].delayMaxTimeMsR + wD * banks[3].delayMaxTimeMsR;
 
-        delayMaxMsL = weightA * banks[0].delayMaxTimeMsL + weightB * banks[1].delayMaxTimeMsL +
-                      weightC * banks[2].delayMaxTimeMsL + weightD * banks[3].delayMaxTimeMsL;
-        delayMaxMsR = weightA * banks[0].delayMaxTimeMsR + weightB * banks[1].delayMaxTimeMsR +
-                      weightC * banks[2].delayMaxTimeMsR + weightD * banks[3].delayMaxTimeMsR;
-
-        float logScaleWeightL = weightA * (banks[0].delayLogScaleL ? 1.0f : 0.0f) +
-                                weightB * (banks[1].delayLogScaleL ? 1.0f : 0.0f) +
-                                weightC * (banks[2].delayLogScaleL ? 1.0f : 0.0f) +
-                                weightD * (banks[3].delayLogScaleL ? 1.0f : 0.0f);
-        float logScaleWeightR = weightA * (banks[0].delayLogScaleR ? 1.0f : 0.0f) +
-                                weightB * (banks[1].delayLogScaleR ? 1.0f : 0.0f) +
-                                weightC * (banks[2].delayLogScaleR ? 1.0f : 0.0f) +
-                                weightD * (banks[3].delayLogScaleR ? 1.0f : 0.0f);
+        float logScaleWeightL = wA * (banks[0].delayLogScaleL ? 1.0f : 0.0f) +
+                                wB * (banks[1].delayLogScaleL ? 1.0f : 0.0f) +
+                                wC * (banks[2].delayLogScaleL ? 1.0f : 0.0f) +
+                                wD * (banks[3].delayLogScaleL ? 1.0f : 0.0f);
+        float logScaleWeightR = wA * (banks[0].delayLogScaleR ? 1.0f : 0.0f) +
+                                wB * (banks[1].delayLogScaleR ? 1.0f : 0.0f) +
+                                wC * (banks[2].delayLogScaleR ? 1.0f : 0.0f) +
+                                wD * (banks[3].delayLogScaleR ? 1.0f : 0.0f);
         bool useLogScaleL = logScaleWeightL > 0.5f;
         bool useLogScaleR = logScaleWeightR > 0.5f;
 
@@ -600,20 +581,9 @@ SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluate
         params.delayR = 0.0f;
     }
 
-    gainDB = weightA * banks[0].gainDB + weightB * banks[1].gainDB +
-             weightC * banks[2].gainDB + weightD * banks[3].gainDB;
-
     // Pan curves
     if (!skip.pan)
     {
-        auto evalCurve4 = [&](CurveType ct) -> float
-        {
-            float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            return weightA * a + weightB * b + weightC * c + weightD * d;
-        };
         params.panL = evalCurve4(CurveType::PanL);
         params.panR = evalCurve4(CurveType::PanR);
     }
@@ -626,14 +596,6 @@ SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluate
     // Feedback curves
     if (!skip.feedback)
     {
-        auto evalCurve4 = [&](CurveType ct) -> float
-        {
-            float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            return weightA * a + weightB * b + weightC * c + weightD * d;
-        };
         float fbLNorm = evalCurve4(CurveType::FeedbackL);
         float fbRNorm = evalCurve4(CurveType::FeedbackR);
 
@@ -658,11 +620,7 @@ SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluate
     {
         auto interpolateDynamicsCurve = [&](CurveType ct) -> float
         {
-            float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float norm = weightA * a + weightB * b + weightC * c + weightD * d;
+            float norm = evalCurve4(ct);
             if (norm <= 0.0f) return 0.0f;
             float dB = (norm * 60.0f) - 60.0f;
             return std::pow(10.0f, dB / 20.0f);
@@ -688,19 +646,10 @@ SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluate
     // Shift/multiply curves
     if (!skip.shift)
     {
-        auto interpolateNormCurve = [&](CurveType ct) -> float
-        {
-            float a = banks[0].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float b = banks[1].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float c = banks[2].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            float d = banks[3].evaluateCurveNormalized(ct, binIndex, currentSampleRate);
-            return weightA * a + weightB * b + weightC * c + weightD * d;
-        };
-
-        params.shiftL = interpolateNormCurve(CurveType::ShiftL);
-        params.shiftR = interpolateNormCurve(CurveType::ShiftR);
-        params.multiplyL = interpolateNormCurve(CurveType::MultiplyL);
-        params.multiplyR = interpolateNormCurve(CurveType::MultiplyR);
+        params.shiftL = evalCurve4(CurveType::ShiftL);
+        params.shiftR = evalCurve4(CurveType::ShiftR);
+        params.multiplyL = evalCurve4(CurveType::MultiplyL);
+        params.multiplyR = evalCurve4(CurveType::MultiplyR);
     }
     else
     {
@@ -708,15 +657,6 @@ SpectrasaurusAudioProcessor::BinParameters SpectrasaurusAudioProcessor::evaluate
         params.shiftR = 0.5f;
         params.multiplyL = 0.5f;
         params.multiplyR = 0.5f;
-    }
-
-    if (shouldLogMorph)
-    {
-        DEBUG_LOG("  X=", x, " Y=", y);
-        DEBUG_LOG("  Normalized curves (bin ", binIndex, "): delayL=", delayLNorm, " delayR=", delayRNorm);
-        DEBUG_LOG("  Interpolated settings: maxDelayL=", delayMaxMsL, "ms, maxDelayR=", delayMaxMsR, "ms, gain=", gainDB, "dB");
-        DEBUG_LOG("  Final delays: L=", params.delayL, " R=", params.delayR, " samples");
-        DEBUG_LOG("  Weights: A=", weightA, " B=", weightB, " C=", weightC, " D=", weightD);
     }
 
     return params;
@@ -792,6 +732,10 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
     {
         juce::SpinLock::ScopedLockType lock(bankLock);
 
+        // Rebuild LUTs for any curves that changed since last frame
+        for (auto& bank : banks)
+            bank.rebuildLUTIfNeeded(numBins, currentSampleRate);
+
         // Morph weights for per-bin interpolation
         float mx = getMorphX();
         float my = getMorphY();
@@ -849,7 +793,7 @@ void SpectrasaurusAudioProcessor::processFFTFrame()
         float rightReal = rightFFTData[realIdx];
         float rightImag = (bin == 0 || bin == numBins) ? 0.0f : rightFFTData[imagIdx];
 
-        BinParameters params = evaluateBinParameters(bin, skipFlags);
+        BinParameters params = evaluateBinParameters(bin, skipFlags, wA, wB, wC, wD);
         allParams[bin] = params;
 
         // Add feedback (skip when all banks have feedback at identity)
